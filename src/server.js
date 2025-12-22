@@ -3,7 +3,6 @@
 // ============================================================================
 
 const express = require('express');
-const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
@@ -24,13 +23,37 @@ const app = express();
 // Seguridad con Helmet
 app.use(helmet());
 
-// CORS - Configurar orígenes permitidos
-const corsOptions = {
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+// ============================================================================
+// CORS CONFIGURATION - Permite frontend desde localhost e IP local
+// ============================================================================
+const cors = require('cors');
+
+app.use(cors({
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://192.168.100.13:5173',
+      'http://localhost:3000'
+    ];
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['set-cookie'],
   optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
+}));
+
+// Body parser DESPUÉS de CORS
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Parser de JSON
 app.use(express.json({ limit: '10mb' }));
