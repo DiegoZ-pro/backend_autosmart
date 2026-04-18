@@ -88,10 +88,10 @@ const getCitaById = async (citaId) => {
 
 /**
  * Crear cita
+ * MODIFICADO: Ahora recibe usuarioId y obtiene cliente_id automáticamente
  */
-const createCita = async (citaData) => {
+const createCita = async (citaData, usuarioId) => {
   const {
-    cliente_id,
     nombre_cliente,
     telefono_cliente,
     email_cliente,
@@ -102,6 +102,18 @@ const createCita = async (citaData) => {
     fecha_cita,
     hora_cita
   } = citaData;
+
+  // ✅ OBTENER cliente_id desde la base de datos usando el usuarioId
+  const [cliente] = await query(
+    'SELECT id FROM clientes WHERE usuario_id = ?',
+    [usuarioId]
+  );
+
+  if (!cliente) {
+    throw new Error('No se encontró el cliente asociado al usuario');
+  }
+
+  const cliente_id = cliente.id;
 
   // Verificar disponibilidad
   const disponible = await verificarDisponibilidad(fecha_cita, hora_cita);
@@ -116,7 +128,7 @@ const createCita = async (citaData) => {
       fecha_cita, hora_cita, estado_id
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     [
-      cliente_id || null,
+      cliente_id,
       nombre_cliente,
       telefono_cliente,
       email_cliente || null,

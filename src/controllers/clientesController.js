@@ -64,6 +64,26 @@ const getClienteById = async (req, res, next) => {
 };
 
 /**
+ * GET /api/clientes/me
+ * Obtener datos del cliente autenticado
+ */
+const getMyProfile = async (req, res, next) => {
+  try {
+    const usuarioId = req.user.id; // Del JWT en el middleware authenticate
+
+    const cliente = await clientesService.getClienteByUsuarioId(usuarioId);
+
+    if (!cliente) {
+      return notFound(res, 'Cliente no encontrado');
+    }
+
+    return success(res, cliente, 'Perfil obtenido exitosamente');
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
  * PUT /api/clientes/:id
  * Actualizar cliente
  */
@@ -72,9 +92,18 @@ const updateCliente = async (req, res, next) => {
     const clienteId = parseInt(req.params.id);
     const data = req.body;
 
-    const cliente = await clientesService.updateCliente(clienteId, data);
+    // Obtener el cliente para verificar que pertenece al usuario autenticado
+    const cliente = await clientesService.getClienteById(clienteId);
+    
+    // Verificar que el usuario solo pueda actualizar su propio perfil
+    // O que sea admin/mecánico
+    if (req.user.rol === 'cliente' && cliente.usuario_id !== req.user.id) {
+      return error(res, 'No tienes permisos para actualizar este cliente', 403);
+    }
 
-    return success(res, cliente, 'Cliente actualizado exitosamente');
+    const clienteActualizado = await clientesService.updateCliente(clienteId, data);
+
+    return success(res, clienteActualizado, 'Cliente actualizado exitosamente');
   } catch (err) {
     if (err.message === 'Cliente no encontrado') {
       return notFound(res, err.message);
@@ -135,6 +164,7 @@ module.exports = {
   getAllClientes,
   searchClientes,
   getClienteById,
+  getMyProfile,
   updateCliente,
   getVehiculosCliente,
   getOrdenesCliente,

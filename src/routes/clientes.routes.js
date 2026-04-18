@@ -11,6 +11,13 @@ const { authenticate, isAdmin, isAdminOrMechanic } = require('../middlewares/aut
 router.use(authenticate);
 
 /**
+ * @route   GET /api/clientes/me
+ * @desc    Obtener datos del cliente autenticado
+ * @access  Private
+ */
+router.get('/me', clientesController.getMyProfile);
+
+/**
  * @route   GET /api/clientes/search?q=
  * @desc    Buscar clientes
  * @access  Private (Admin/Mecanico)

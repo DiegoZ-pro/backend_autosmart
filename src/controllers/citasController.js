@@ -102,12 +102,14 @@ const getCitasByCliente = async (req, res, next) => {
 /**
  * POST /api/citas
  * Crear nueva cita
+ * MODIFICADO: Ahora pasa req.user.id al servicio para obtener cliente_id automáticamente
  */
 const createCita = async (req, res, next) => {
   try {
     const citaData = req.body;
+    const usuarioId = req.user.id;  // ✅ Del middleware authenticate
 
-    const citaId = await citasService.createCita(citaData);
+    const citaId = await citasService.createCita(citaData, usuarioId);
 
     const cita = await citasService.getCitaById(citaId);
 
@@ -115,6 +117,9 @@ const createCita = async (req, res, next) => {
   } catch (err) {
     if (err.message === 'Ya existe una cita en este horario') {
       return error(res, err.message, 409);
+    }
+    if (err.message === 'No se encontró el cliente asociado al usuario') {
+      return error(res, err.message, 404);
     }
     next(err);
   }
