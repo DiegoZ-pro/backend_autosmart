@@ -156,6 +156,7 @@ const getVehiculosCliente = async (clienteId) => {
 
 /**
  * Obtener órdenes de trabajo de un cliente
+ * CORREGIDO: Ahora incluye información del vehículo
  */
 const getOrdenesCliente = async (clienteId) => {
   const ordenes = await query(
@@ -163,17 +164,22 @@ const getOrdenesCliente = async (clienteId) => {
             tor.tipo as tipo_orden_nombre,
             eo.estado as estado_nombre,
             p.prioridad as prioridad_nombre,
-            u.nombre_completo as mecanico_nombre
+            u.nombre_completo as mecanico_nombre,
+            v.marca as marca_vehiculo,
+            v.modelo as modelo_vehiculo,
+            v.placa as placa_vehiculo,
+            v.anio as anio_vehiculo
      FROM ordenes_trabajo ot
      INNER JOIN tipos_orden tor ON ot.tipo_orden_id = tor.id_tipo
      INNER JOIN estados_orden eo ON ot.estado_id = eo.id_estado
      INNER JOIN prioridades p ON ot.prioridad_id = p.id_prioridad
      LEFT JOIN usuarios u ON ot.mecanico_asignado_id = u.id
+     LEFT JOIN vehiculos v ON ot.vehiculo_id = v.id
      WHERE ot.cliente_id = ?
      ORDER BY ot.fecha_creacion DESC`,
     [clienteId]
   );
-
+ 
   return ordenes;
 };
 

@@ -1,9 +1,10 @@
 // ============================================================================
-// SERVICIO DE ÓRDENES DE TRABAJO (CRÍTICO)
-// Este es el corazón del sistema
+// SERVICIO DE ÓRDENES DE TRABAJO - CORREGIDO
+// Ahora crea clientes y vehículos automáticamente
 // ============================================================================
 
 const { query, transaction } = require('../config/database');
+const bcrypt = require('bcryptjs');
 
 /**
  * Obtener todas las órdenes con información completa
@@ -37,7 +38,6 @@ const getAllOrdenes = async (filters = {}) => {
 
   const params = [];
 
-  // Filtros
   if (filters.tipo_orden_id) {
     sql += ' AND ot.tipo_orden_id = ?';
     params.push(filters.tipo_orden_id);
@@ -126,18 +126,23 @@ const getOrdenById = async (ordenId) => {
 
 /**
  * Crear orden de trabajo
+ * CORREGIDO: Ahora maneja creación de clientes y vehículos
  */
 const createOrden = async (ordenData, userId) => {
   const {
     tipo_orden_id,
     cliente_id,
+    cliente,
     vehiculo_id,
+    vehiculo,
     tipo_pieza,
     marca_pieza,
     modelo_origen,
     numero_parte,
     descripcion_problema,
     observaciones,
+    fecha_recepcion,
+    hora_recepcion,
     fecha_diagnostico,
     hora_diagnostico,
     fecha_entrega_estimada,
@@ -149,6 +154,95 @@ const createOrden = async (ordenData, userId) => {
   } = ordenData;
 
   return await transaction(async (connection) => {
+    let finalClienteId = cliente_id;
+    let finalVehiculoId = vehiculo_id;
+
+    // ======================================================================
+    // PASO 1: CREAR CLIENTE SI ES NECESARIO
+    // ======================================================================
+    if (!finalClienteId && cliente) {
+      console.log('🆕 Creando nuevo cliente:', cliente.nombreCompleto);
+
+      // Obtener ID del rol "cliente"
+      const [roleResult] = await connection.execute(
+        'SELECT id_rol FROM roles WHERE rol = ?',
+        ['cliente']
+      );
+
+      if (!roleResult) {
+        throw new Error('Error al obtener rol de cliente');
+      }
+
+      // Generar contraseña temporal
+      const tempPassword = Math.random().toString(36).slice(-8);
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+      // Crear usuario
+      const [userResult] = await connection.execute(
+        `INSERT INTO usuarios (email, password_hash, nombre_completo, telefono, rol_id, estado_id) 
+         VALUES (?, ?, ?, ?, ?, 1)`,
+        [
+          cliente.email || `temp_${Date.now()}@autosmart.com`,
+          passwordHash,
+          cliente.nombreCompleto,
+          cliente.telefono,
+          roleResult.id_rol
+        ]
+      );
+
+      const nuevoUsuarioId = userResult.insertId;
+
+      // El trigger creará automáticamente el cliente
+      // Actualizar datos del cliente
+      await connection.execute(
+        `UPDATE clientes SET telefono = ?, email = ? WHERE usuario_id = ?`,
+        [cliente.telefono, cliente.email || null, nuevoUsuarioId]
+      );
+
+      // Obtener el ID del cliente creado
+      const [clienteCreado] = await connection.execute(
+        'SELECT id FROM clientes WHERE usuario_id = ?',
+        [nuevoUsuarioId]
+      );
+
+      finalClienteId = clienteCreado[0].id;
+      console.log('✅ Cliente creado con ID:', finalClienteId);
+    }
+
+    // ======================================================================
+    // PASO 2: CREAR VEHÍCULO SI ES NECESARIO
+    // ======================================================================
+    if (!finalVehiculoId && vehiculo) {
+      console.log('🚗 Creando nuevo vehículo:', vehiculo.placa);
+
+      // Usar el cliente_id del vehículo si existe, sino usar el finalClienteId
+      const vehiculoClienteId = vehiculo.cliente_id || finalClienteId;
+
+      if (!vehiculoClienteId) {
+        throw new Error('No se puede crear vehículo sin cliente asociado');
+      }
+
+      const [vehiculoResult] = await connection.execute(
+        `INSERT INTO vehiculos (cliente_id, marca, modelo, anio, placa, vin) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          vehiculoClienteId,
+          vehiculo.marca,
+          vehiculo.modelo,
+          vehiculo.anio || null,
+          vehiculo.placa,
+          vehiculo.vin || null
+        ]
+      );
+
+      finalVehiculoId = vehiculoResult.insertId;
+      console.log('✅ Vehículo creado con ID:', finalVehiculoId, 'asociado al cliente:', vehiculoClienteId);
+    }
+
+    // ======================================================================
+    // PASO 3: CREAR ORDEN DE TRABAJO
+    // ======================================================================
+
     // Generar número de orden
     const [tipoOrden] = await connection.execute(
       'SELECT tipo FROM tipos_orden WHERE id_tipo = ?',
@@ -168,39 +262,48 @@ const createOrden = async (ordenData, userId) => {
     const contador = count[0].total + 1;
     const numero_orden = `${prefijo}-${year}-${String(contador).padStart(6, '0')}`;
 
+    console.log('📋 Creando orden:', numero_orden);
+    console.log('   Cliente ID:', finalClienteId);
+    console.log('   Vehículo ID:', finalVehiculoId);
+
     // Insertar orden
     const [result] = await connection.execute(
       `INSERT INTO ordenes_trabajo (
         numero_orden, tipo_orden_id, cliente_id, vehiculo_id,
         tipo_pieza, marca_pieza, modelo_origen, numero_parte,
         descripcion_problema, observaciones,
+        fecha_recepcion, hora_recepcion,
         fecha_diagnostico, hora_diagnostico,
         fecha_entrega_estimada, hora_entrega_estimada,
         estado_id, mecanico_asignado_id, prioridad_id,
         costo_estimado, creado_por
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         numero_orden,
         tipo_orden_id,
-        cliente_id,
-        vehiculo_id || null,
+        finalClienteId,
+        finalVehiculoId || null,
         tipo_pieza || null,
         marca_pieza || null,
         modelo_origen || null,
         numero_parte || null,
         descripcion_problema,
         observaciones || null,
+        fecha_recepcion || new Date().toISOString().split('T')[0],
+        hora_recepcion || new Date().toTimeString().slice(0, 8),
         fecha_diagnostico || null,
         hora_diagnostico || null,
         fecha_entrega_estimada || null,
         hora_entrega_estimada || null,
-        estado_id || 1, // Default: pendiente
+        estado_id || 1,
         mecanico_asignado_id || null,
-        prioridad_id || 2, // Default: media
+        prioridad_id || 2,
         costo_estimado || 0,
         userId
       ]
     );
+
+    console.log('✅ Orden creada exitosamente con ID:', result.insertId);
 
     return result.insertId;
   });
@@ -318,17 +421,22 @@ const updateOrden = async (ordenId, ordenData, userId) => {
 };
 
 /**
- * Cambiar estado de orden (para Kanban drag & drop)
+ * Cambiar estado de orden
  */
-const cambiarEstado = async (ordenId, estadoId, userId) => {
+const cambiarEstado = async (ordenId, nuevoEstadoId, userId) => {
+  const orden = await getOrdenById(ordenId);
+
   await query(
-    `UPDATE ordenes_trabajo 
-     SET estado_id = ?, actualizado_por = ?
-     WHERE id = ?`,
-    [estadoId, userId, ordenId]
+    'UPDATE ordenes_trabajo SET estado_id = ?, actualizado_por = ? WHERE id = ?',
+    [nuevoEstadoId, userId, ordenId]
   );
 
-  // El trigger se encarga de registrar en historial_estados
+  // Registrar en historial
+  await query(
+    `INSERT INTO historial_estados (orden_trabajo_id, estado_anterior_id, estado_nuevo_id, cambiado_por)
+     VALUES (?, ?, ?, ?)`,
+    [ordenId, orden.estado_id, nuevoEstadoId, userId]
+  );
 
   return await getOrdenById(ordenId);
 };
@@ -338,9 +446,7 @@ const cambiarEstado = async (ordenId, estadoId, userId) => {
  */
 const asignarMecanico = async (ordenId, mecanicoId, userId) => {
   await query(
-    `UPDATE ordenes_trabajo 
-     SET mecanico_asignado_id = ?, actualizado_por = ?
-     WHERE id = ?`,
+    'UPDATE ordenes_trabajo SET mecanico_asignado_id = ?, actualizado_por = ? WHERE id = ?',
     [mecanicoId, userId, ordenId]
   );
 
@@ -348,7 +454,7 @@ const asignarMecanico = async (ordenId, mecanicoId, userId) => {
 };
 
 /**
- * Obtener historial de estados de una orden
+ * Obtener historial de estados
  */
 const getHistorialEstados = async (ordenId) => {
   const historial = await query(
@@ -369,12 +475,11 @@ const getHistorialEstados = async (ordenId) => {
 };
 
 /**
- * Obtener órdenes para Kanban agrupadas por estado
+ * Obtener órdenes para Kanban
  */
 const getOrdenesKanban = async (tipoOrdenId) => {
   const ordenes = await getAllOrdenes({ tipo_orden_id: tipoOrdenId });
 
-  // Agrupar por estado
   const kanban = {};
   ordenes.forEach(orden => {
     const estadoId = orden.estado_id;
@@ -388,7 +493,7 @@ const getOrdenesKanban = async (tipoOrdenId) => {
 };
 
 /**
- * Obtener estadísticas de órdenes
+ * Obtener estadísticas
  */
 const getEstadisticas = async (fechaInicio, fechaFin) => {
   const [stats] = await query(
@@ -401,10 +506,7 @@ const getEstadisticas = async (fechaInicio, fechaFin) => {
       SUM(CASE WHEN eo.estado = 'cancelado' THEN 1 ELSE 0 END) as ordenes_canceladas,
       SUM(COALESCE(costo_final, 0)) as ingresos_totales,
       AVG(COALESCE(costo_final, 0)) as ticket_promedio,
-      AVG(DATEDIFF(
-        COALESCE(fecha_entrega_real, NOW()), 
-        fecha_recepcion
-      )) as tiempo_promedio_dias
+      AVG(DATEDIFF(COALESCE(fecha_entrega_real, NOW()), fecha_recepcion)) as tiempo_promedio_dias
      FROM ordenes_trabajo ot
      INNER JOIN estados_orden eo ON ot.estado_id = eo.id_estado
      WHERE ot.fecha_recepcion BETWEEN ? AND ?`,
