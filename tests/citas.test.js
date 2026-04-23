@@ -1,9 +1,6 @@
-// ============================================================================
-// UNIT TESTS - MÓDULO DE AGENDAR CITAS
-// AutoSmart Backend
-// ============================================================================
+// tests del modulo de citas
 
-// ── Mocks ────────────────────────────────────────────────────────────────────
+// mocks
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
 }));
@@ -11,7 +8,7 @@ jest.mock('../src/config/database', () => ({
 const { query } = require('../src/config/database');
 const citasService = require('../src/services/citasService');
 
-// ── Datos de prueba ──────────────────────────────────────────────────────────
+// datos de prueba
 const mockCita = {
   id: 1,
   cliente_id: 5,
@@ -44,21 +41,19 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-// ============================================================================
-// TEST SUITE 1 — createCita
-// ============================================================================
+// tests de crear cita
 describe('citasService.createCita', () => {
-  test('✅ crea cita exitosamente cuando el horario está disponible', async () => {
+  test('crea cita cuando el horario esta libre', async () => {
     query
-      .mockResolvedValueOnce([{ id: 5 }])            // SELECT cliente por usuario_id
-      .mockResolvedValueOnce([{ total: 0 }])          // verificarDisponibilidad: libre
-      .mockResolvedValueOnce({ insertId: 1 });        // INSERT cita
+      .mockResolvedValueOnce([{ id: 5 }]) // busca cliente por usuario
+      .mockResolvedValueOnce([{ total: 0 }]) // horario libre
+      .mockResolvedValueOnce({ insertId: 1 }); // inserta cita
 
     const citaId = await citasService.createCita(mockCitaData, 10);
 
     expect(citaId).toBe(1);
 
-    // Verifica que se buscó el cliente del usuario autenticado
+    // verifica que se busco el cliente
     expect(query).toHaveBeenNthCalledWith(
       1,
       'SELECT id FROM clientes WHERE usuario_id = ?',
@@ -66,16 +61,16 @@ describe('citasService.createCita', () => {
     );
   });
 
-  test('❌ falla si no existe cliente asociado al usuario', async () => {
+  test('falla si no hay cliente asociado', async () => {
     query.mockResolvedValueOnce([]); // no hay cliente
 
     await expect(citasService.createCita(mockCitaData, 99))
       .rejects.toThrow('No se encontró el cliente asociado al usuario');
   });
 
-  test('❌ falla si el horario ya está ocupado', async () => {
+  test('falla si el horario ya esta ocupado', async () => {
     query
-      .mockResolvedValueOnce([{ id: 5 }])    // cliente encontrado
+      .mockResolvedValueOnce([{ id: 5 }]) // cliente encontrado
       .mockResolvedValueOnce([{ total: 1 }]); // horario ocupado
 
     await expect(citasService.createCita(mockCitaData, 10))
@@ -83,45 +78,41 @@ describe('citasService.createCita', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 2 — getCitaById
-// ============================================================================
+// tests de obtener cita por id
 describe('citasService.getCitaById', () => {
-  test('✅ retorna cita existente con motivo parseado', async () => {
+  test('retorna cita y parsea motivo', async () => {
     query.mockResolvedValueOnce([mockCita]);
 
     const result = await citasService.getCitaById(1);
 
     expect(result).toBeDefined();
     expect(result.id).toBe(1);
-    // El motivo JSON string debe ser parseado a array
+    // el motivo debe convertirse a array
     expect(Array.isArray(result.motivo)).toBe(true);
     expect(result.motivo).toContain('Revisión de Frenos');
   });
 
-  test('❌ lanza error si cita no existe', async () => {
-    query.mockResolvedValueOnce([]); // no results
+  test('lanza error si no existe', async () => {
+    query.mockResolvedValueOnce([]);
 
     await expect(citasService.getCitaById(999))
       .rejects.toThrow('Cita no encontrada');
   });
 });
 
-// ============================================================================
-// TEST SUITE 3 — verificarDisponibilidad
-// ============================================================================
+// tests de disponibilidad
 describe('citasService.verificarDisponibilidad (via getHorariosDisponibles)', () => {
-  test('✅ retorna todos los horarios cuando no hay citas', async () => {
-    query.mockResolvedValueOnce([]); // sin citas ocupadas
+  test('retorna todos los horarios si no hay citas', async () => {
+    query.mockResolvedValueOnce([]); // sin ocupados
 
     const horarios = await citasService.getHorariosDisponibles('2026-05-10');
 
     expect(Array.isArray(horarios)).toBe(true);
-    expect(horarios.length).toBe(10); // 08:00 a 17:00
+    expect(horarios.length).toBe(10);
     expect(horarios).toContain('09:00:00');
   });
 
-  test('✅ excluye horarios ya ocupados', async () => {
+  test('excluye horarios ocupados', async () => {
     query.mockResolvedValueOnce([
       { hora_cita: '09:00:00' },
       { hora_cita: '14:00:00' },
@@ -134,7 +125,7 @@ describe('citasService.verificarDisponibilidad (via getHorariosDisponibles)', ()
     expect(horarios.length).toBe(8);
   });
 
-  test('✅ retorna lista vacía cuando todos los horarios están llenos', async () => {
+  test('retorna vacio si todo esta lleno', async () => {
     const todosOcupados = [
       '08:00:00', '09:00:00', '10:00:00', '11:00:00', '12:00:00',
       '13:00:00', '14:00:00', '15:00:00', '16:00:00', '17:00:00',
@@ -148,16 +139,14 @@ describe('citasService.verificarDisponibilidad (via getHorariosDisponibles)', ()
   });
 });
 
-// ============================================================================
-// TEST SUITE 4 — cambios de estado de cita
-// ============================================================================
+// tests de cambios de estado
 describe('citasService - cambios de estado', () => {
   const citaBase = { ...mockCita };
 
-  test('✅ confirmarCita cambia estado a 2 (confirmada)', async () => {
+  test('confirmar cita cambia a estado 2', async () => {
     query
-      .mockResolvedValueOnce({ affectedRows: 1 })               // UPDATE estado
-      .mockResolvedValueOnce([{ ...citaBase, estado_id: 2, estado_nombre: 'confirmada' }]); // getCitaById
+      .mockResolvedValueOnce({ affectedRows: 1 })
+      .mockResolvedValueOnce([{ ...citaBase, estado_id: 2, estado_nombre: 'confirmada' }]);
 
     const result = await citasService.confirmarCita(1);
 
@@ -169,7 +158,7 @@ describe('citasService - cambios de estado', () => {
     expect(result.estado_id).toBe(2);
   });
 
-  test('✅ cancelarCita cambia estado a 3 (cancelada)', async () => {
+  test('cancelar cita cambia a estado 3', async () => {
     query
       .mockResolvedValueOnce({ affectedRows: 1 })
       .mockResolvedValueOnce([{ ...citaBase, estado_id: 3, estado_nombre: 'cancelada' }]);
@@ -184,7 +173,7 @@ describe('citasService - cambios de estado', () => {
     expect(result.estado_id).toBe(3);
   });
 
-  test('✅ completarCita cambia estado a 4 (completada)', async () => {
+  test('completar cita cambia a estado 4', async () => {
     query
       .mockResolvedValueOnce({ affectedRows: 1 })
       .mockResolvedValueOnce([{ ...citaBase, estado_id: 4, estado_nombre: 'completada' }]);
@@ -200,11 +189,9 @@ describe('citasService - cambios de estado', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 5 — getCitasByCliente
-// ============================================================================
+// tests de citas por cliente
 describe('citasService.getCitasByCliente', () => {
-  test('✅ retorna lista de citas para un cliente', async () => {
+  test('retorna lista de citas', async () => {
     query.mockResolvedValueOnce([mockCita, { ...mockCita, id: 2 }]);
 
     const result = await citasService.getCitasByCliente(5);
@@ -214,7 +201,7 @@ describe('citasService.getCitasByCliente', () => {
     expect(result[0].cliente_id).toBe(5);
   });
 
-  test('✅ retorna array vacío si cliente no tiene citas', async () => {
+  test('retorna vacio si no hay citas', async () => {
     query.mockResolvedValueOnce([]);
 
     const result = await citasService.getCitasByCliente(99);

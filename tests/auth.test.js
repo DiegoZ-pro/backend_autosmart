@@ -1,11 +1,8 @@
-// ============================================================================
-// UNIT TESTS - MÓDULO DE AUTENTICACIÓN
-// AutoSmart Backend
-// ============================================================================
+// tests del modulo de autenticacion
 
 const bcrypt = require('bcryptjs');
 
-// ── Mocks ────────────────────────────────────────────────────────────────────
+// mocks
 jest.mock('bcryptjs');
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
@@ -20,7 +17,7 @@ const { query, transaction } = require('../src/config/database');
 const { generateTokens, verifyAccessToken } = require('../src/utils/jwt');
 const authService = require('../src/services/authService');
 
-// ── Constantes reutilizables ─────────────────────────────────────────────────
+// constantes que se reutilizan
 const HASH = '$2a$10$hashedpassword';
 
 const mockTokens = {
@@ -28,9 +25,8 @@ const mockTokens = {
   refreshToken: 'mock.refresh.token',
 };
 
-// FIX: función que genera una copia fresca del usuario en cada llamada.
-// El servicio hace `delete user.password_hash`, mutando el objeto original.
-// Si se usa el mismo objeto, al correr la aserción el hash ya es undefined.
+// devuelve un usuario nuevo cada vez
+// esto evita problemas porque el servicio elimina el password_hash
 const freshUser = () => ({
   id: 1,
   email: 'juan@example.com',
@@ -47,34 +43,31 @@ beforeEach(() => {
   generateTokens.mockReturnValue(mockTokens);
 });
 
-// ============================================================================
-// TEST SUITE 1 — login
-// ============================================================================
+// tests de login
 describe('authService.login', () => {
-  test('✅ login exitoso con credenciales válidas', async () => {
+  test('login exitoso con credenciales válidas', async () => {
     query.mockResolvedValueOnce([freshUser()]);
     bcrypt.compare.mockResolvedValueOnce(true);
-    query.mockResolvedValueOnce({ affectedRows: 1 }); // UPDATE refresh_token
+    query.mockResolvedValueOnce({ affectedRows: 1 }); // actualiza refresh token
 
     const result = await authService.login('juan@example.com', 'password123');
 
     expect(query).toHaveBeenCalledTimes(2);
-    // Usamos HASH (constante) en lugar de mockUser.password_hash porque
-    // el servicio borra esa propiedad antes de que corra la aserción.
+    // se usa HASH directo porque el servicio elimina el password_hash
     expect(bcrypt.compare).toHaveBeenCalledWith('password123', HASH);
     expect(generateTokens).toHaveBeenCalledWith(1, 'juan@example.com', 'cliente');
     expect(result).toHaveProperty('tokens', mockTokens);
     expect(result.user).not.toHaveProperty('password_hash');
   });
 
-  test('❌ falla con usuario inexistente → Credenciales inválidas', async () => {
+  test('falla con usuario inexistente', async () => {
     query.mockResolvedValueOnce([]);
 
     await expect(authService.login('noexiste@example.com', 'pass'))
       .rejects.toThrow('Credenciales inválidas');
   });
 
-  test('❌ falla con contraseña incorrecta → Credenciales inválidas', async () => {
+  test('falla con contraseña incorrecta', async () => {
     query.mockResolvedValueOnce([freshUser()]);
     bcrypt.compare.mockResolvedValueOnce(false);
 
@@ -82,14 +75,14 @@ describe('authService.login', () => {
       .rejects.toThrow('Credenciales inválidas');
   });
 
-  test('❌ rechaza usuario bloqueado', async () => {
+  test('rechaza usuario bloqueado', async () => {
     query.mockResolvedValueOnce([{ ...freshUser(), estado: 'bloqueado' }]);
 
     await expect(authService.login('juan@example.com', 'password123'))
       .rejects.toThrow('bloqueado');
   });
 
-  test('❌ rechaza usuario inactivo', async () => {
+  test('rechaza usuario inactivo', async () => {
     query.mockResolvedValueOnce([{ ...freshUser(), estado: 'inactivo' }]);
 
     await expect(authService.login('juan@example.com', 'password123'))
@@ -97,23 +90,21 @@ describe('authService.login', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 2 — register
-// ============================================================================
+// tests de registro
 describe('authService.register', () => {
   const setupRegisterMocks = () => {
-    query.mockResolvedValueOnce([]);                              // email no existe
-    query.mockResolvedValueOnce([{ id_rol: 3 }]);               // rol cliente
+    query.mockResolvedValueOnce([]); // email no existe
+    query.mockResolvedValueOnce([{ id_rol: 3 }]); // rol cliente
     transaction.mockImplementation(async (cb) => {
       const conn = {
         execute: jest.fn()
-          .mockResolvedValueOnce([{ insertId: 10 }])            // INSERT usuario
-          .mockResolvedValueOnce([{ affectedRows: 1 }]),        // UPDATE clientes
+          .mockResolvedValueOnce([{ insertId: 10 }]) // inserta usuario
+          .mockResolvedValueOnce([{ affectedRows: 1 }]), // actualiza cliente
       };
       return cb(conn);
     });
-    query.mockResolvedValueOnce({ affectedRows: 1 });             // UPDATE refresh_token
-    query.mockResolvedValueOnce([{                                // SELECT usuario creado
+    query.mockResolvedValueOnce({ affectedRows: 1 }); // guarda refresh token
+    query.mockResolvedValueOnce([{ // obtiene usuario creado
       id: 10,
       email: 'nuevo@example.com',
       nombre_completo: 'Nuevo Usuario',
@@ -122,7 +113,7 @@ describe('authService.register', () => {
     }]);
   };
 
-  test('✅ registro exitoso de nuevo usuario', async () => {
+  test('registro exitoso', async () => {
     bcrypt.hash.mockResolvedValueOnce('$2a$10$newhash');
     setupRegisterMocks();
 
@@ -135,7 +126,7 @@ describe('authService.register', () => {
     expect(result.user.email).toBe('nuevo@example.com');
   });
 
-  test('❌ falla si el email ya está registrado', async () => {
+  test('falla si el email ya existe', async () => {
     query.mockResolvedValueOnce([{ id: 5 }]); // email duplicado
 
     await expect(
@@ -144,11 +135,9 @@ describe('authService.register', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 3 — logout
-// ============================================================================
+// tests de logout
 describe('authService.logout', () => {
-  test('✅ logout limpia el refresh_token en BD', async () => {
+  test('elimina el refresh token', async () => {
     query.mockResolvedValueOnce({ affectedRows: 1 });
 
     const result = await authService.logout(1);
@@ -161,11 +150,9 @@ describe('authService.logout', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 4 — changePassword
-// ============================================================================
+// tests de cambio de contraseña
 describe('authService.changePassword', () => {
-  test('✅ cambio de contraseña exitoso', async () => {
+  test('cambio de contraseña correcto', async () => {
     query.mockResolvedValueOnce([{ password_hash: '$2a$10$oldhash' }]);
     bcrypt.compare.mockResolvedValueOnce(true);
     bcrypt.hash.mockResolvedValueOnce('$2a$10$newhash');
@@ -178,7 +165,7 @@ describe('authService.changePassword', () => {
     expect(result).toBe(true);
   });
 
-  test('❌ falla si la contraseña actual es incorrecta', async () => {
+  test('falla si la contraseña actual es incorrecta', async () => {
     query.mockResolvedValueOnce([{ password_hash: '$2a$10$oldhash' }]);
     bcrypt.compare.mockResolvedValueOnce(false);
 
@@ -187,9 +174,7 @@ describe('authService.changePassword', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 5 — Middleware authenticate
-// ============================================================================
+// tests del middleware authenticate
 describe('Middleware authenticate', () => {
   const { authenticate } = require('../src/middlewares/auth');
 
@@ -200,7 +185,7 @@ describe('Middleware authenticate', () => {
     return res;
   };
 
-  test('✅ permite paso con token JWT válido', () => {
+  test('permite pasar con token valido', () => {
     const req = { headers: { authorization: 'Bearer valid.token.here' } };
     const res = mockRes();
     const next = jest.fn();
@@ -213,7 +198,7 @@ describe('Middleware authenticate', () => {
     expect(req.user).toEqual({ id: 1, email: 'juan@example.com', rol: 'cliente' });
   });
 
-  test('❌ rechaza solicitud sin header Authorization', () => {
+  test('rechaza si no hay authorization', () => {
     const req = { headers: {} };
     const res = mockRes();
     const next = jest.fn();
@@ -224,7 +209,7 @@ describe('Middleware authenticate', () => {
     expect(res.status).toHaveBeenCalledWith(401);
   });
 
-  test('❌ rechaza token inválido o expirado', () => {
+  test('rechaza token invalido o expirado', () => {
     const req = { headers: { authorization: 'Bearer bad.token' } };
     const res = mockRes();
     const next = jest.fn();

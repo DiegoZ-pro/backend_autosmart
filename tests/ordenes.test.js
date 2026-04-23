@@ -1,9 +1,6 @@
-// ============================================================================
-// UNIT TESTS - MÓDULO DE RECEPCIÓN DE VEHÍCULO (Órdenes de Trabajo)
-// AutoSmart Backend
-// ============================================================================
+// tests del modulo de ordenes
 
-// ── Mocks ────────────────────────────────────────────────────────────────────
+// mocks
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
   transaction: jest.fn(),
@@ -12,7 +9,7 @@ jest.mock('../src/config/database', () => ({
 const { query, transaction } = require('../src/config/database');
 const ordenesService = require('../src/services/ordenesService');
 
-// ── Datos de prueba ──────────────────────────────────────────────────────────
+// datos de prueba
 const mockOrden = {
   id: 1,
   numero_orden: 'VEH-2026-000001',
@@ -66,28 +63,23 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-// ============================================================================
-// TEST SUITE 1 — createOrden (Recepción de Vehículo)
-// ============================================================================
+// tests de crear orden
 describe('ordenesService.createOrden', () => {
-  // Helper: configura el mock de `transaction` para createOrden.
-  // La transacción hace 3 execute internos:
-  //   1) SELECT tipo FROM tipos_orden
-  //   2) SELECT COUNT(*) as total FROM ordenes_trabajo
-  //   3) INSERT INTO ordenes_trabajo
+  // helper para simular la transaccion
+  // hace 3 consultas internas
   const setupTransactionMock = ({ tipo = 'vehiculo', contador = 0, insertId = 1 } = {}) => {
     transaction.mockImplementation(async (cb) => {
       const conn = {
         execute: jest.fn()
-          .mockResolvedValueOnce([[{ tipo }]])                    // SELECT tipo_orden
-          .mockResolvedValueOnce([[{ total: contador }]])          // COUNT ordenes
-          .mockResolvedValueOnce([{ insertId }]),                  // INSERT orden
+          .mockResolvedValueOnce([[{ tipo }]]) // tipo de orden
+          .mockResolvedValueOnce([[{ total: contador }]]) // contador
+          .mockResolvedValueOnce([{ insertId }]), // inserta orden
       };
       return cb(conn);
     });
   };
 
-  test('✅ crea orden de tipo vehículo y retorna el insertId', async () => {
+  test('crea orden y retorna id', async () => {
     setupTransactionMock({ tipo: 'vehiculo', contador: 0, insertId: 1 });
 
     const ordenId = await ordenesService.createOrden(mockOrdenData, 10);
@@ -96,7 +88,7 @@ describe('ordenesService.createOrden', () => {
     expect(transaction).toHaveBeenCalledTimes(1);
   });
 
-  test('✅ genera prefijo VEH para órdenes de tipo vehículo', async () => {
+  test('usa prefijo veh para tipo vehiculo', async () => {
     let capturedNumeroOrden;
 
     transaction.mockImplementation(async (cb) => {
@@ -105,7 +97,7 @@ describe('ordenesService.createOrden', () => {
           .mockResolvedValueOnce([[{ tipo: 'vehiculo' }]])
           .mockResolvedValueOnce([[{ total: 0 }]])
           .mockImplementationOnce(async (sql, params) => {
-            capturedNumeroOrden = params[0]; // primer parámetro = numero_orden
+            capturedNumeroOrden = params[0];
             return [{ insertId: 5 }];
           }),
       };
@@ -118,7 +110,7 @@ describe('ordenesService.createOrden', () => {
     expect(capturedNumeroOrden).toMatch(new RegExp(`^VEH-${year}-\\d{6}$`));
   });
 
-  test('✅ genera prefijo LAB para órdenes de tipo laboratorio', async () => {
+  test('usa prefijo lab para tipo laboratorio', async () => {
     let capturedNumeroOrden;
 
     transaction.mockImplementation(async (cb) => {
@@ -140,14 +132,14 @@ describe('ordenesService.createOrden', () => {
     expect(capturedNumeroOrden).toMatch(new RegExp(`^LAB-${year}-\\d{6}$`));
   });
 
-  test('✅ el número correlativo usa padding de 6 dígitos (ej: 000005)', async () => {
+  test('el correlativo tiene 6 digitos', async () => {
     let capturedNumeroOrden;
 
     transaction.mockImplementation(async (cb) => {
       const conn = {
         execute: jest.fn()
           .mockResolvedValueOnce([[{ tipo: 'vehiculo' }]])
-          .mockResolvedValueOnce([[{ total: 4 }]])  // ya hay 4 → será 000005
+          .mockResolvedValueOnce([[{ total: 4 }]])
           .mockImplementationOnce(async (sql, params) => {
             capturedNumeroOrden = params[0];
             return [{ insertId: 5 }];
@@ -162,11 +154,9 @@ describe('ordenesService.createOrden', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 2 — getOrdenById
-// ============================================================================
+// tests de obtener orden por id
 describe('ordenesService.getOrdenById', () => {
-  test('✅ retorna la orden completa con datos del cliente y vehículo', async () => {
+  test('retorna la orden completa', async () => {
     query.mockResolvedValueOnce([mockOrden]);
 
     const result = await ordenesService.getOrdenById(1);
@@ -177,7 +167,7 @@ describe('ordenesService.getOrdenById', () => {
     expect(result.placa_vehiculo).toBe('910HDS');
   });
 
-  test('❌ lanza error si la orden no existe', async () => {
+  test('lanza error si no existe', async () => {
     query.mockResolvedValueOnce([]);
 
     await expect(ordenesService.getOrdenById(999))
@@ -185,35 +175,26 @@ describe('ordenesService.getOrdenById', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 3 — cambiarEstado (Kanban drag & drop)
-// ============================================================================
+// tests de cambio de estado
 describe('ordenesService.cambiarEstado', () => {
-  // La función hace 4 queries en este orden:
-  //   1) getOrdenById(ordenId)          → SELECT (necesita array)
-  //   2) UPDATE ordenes_trabajo estado  → DML
-  //   3) INSERT historial_estados       → DML
-  //   4) getOrdenById(ordenId)          → SELECT (necesita array)
-
-  test('✅ cambia estado y registra en historial', async () => {
+  // hace 4 consultas internas
+  test('cambia estado y guarda historial', async () => {
     const ordenActualizada = { ...mockOrden, estado_id: 2, estado_nombre: 'en_diagnostico' };
 
     query
-      .mockResolvedValueOnce([{ ...mockOrden }])          // 1) getOrdenById inicial
-      .mockResolvedValueOnce({ affectedRows: 1 })          // 2) UPDATE estado
-      .mockResolvedValueOnce({ affectedRows: 1 })          // 3) INSERT historial
-      .mockResolvedValueOnce([ordenActualizada]);           // 4) getOrdenById final
+      .mockResolvedValueOnce([{ ...mockOrden }])
+      .mockResolvedValueOnce({ affectedRows: 1 })
+      .mockResolvedValueOnce({ affectedRows: 1 })
+      .mockResolvedValueOnce([ordenActualizada]);
 
     const result = await ordenesService.cambiarEstado(1, 2, 10);
 
     expect(result.estado_id).toBe(2);
     expect(result.estado_nombre).toBe('en_diagnostico');
-    // Verifica que se insertó en historial con los estados correcto
     expect(query).toHaveBeenCalledTimes(4);
   });
 
-  test('❌ lanza error si la orden no existe', async () => {
-    // La primera llamada es getOrdenById → array vacío → throw
+  test('falla si no existe la orden', async () => {
     query.mockResolvedValueOnce([]);
 
     await expect(ordenesService.cambiarEstado(999, 2, 10))
@@ -221,11 +202,9 @@ describe('ordenesService.cambiarEstado', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 4 — getAllOrdenes con filtros
-// ============================================================================
+// tests de obtener ordenes
 describe('ordenesService.getAllOrdenes', () => {
-  test('✅ retorna todas las órdenes sin filtros', async () => {
+  test('retorna todas las ordenes', async () => {
     query.mockResolvedValueOnce([mockOrden, { ...mockOrden, id: 2 }]);
 
     const result = await ordenesService.getAllOrdenes();
@@ -234,7 +213,7 @@ describe('ordenesService.getAllOrdenes', () => {
     expect(result.length).toBe(2);
   });
 
-  test('✅ aplica filtro por cliente_id en el SQL', async () => {
+  test('filtra por cliente_id', async () => {
     query.mockResolvedValueOnce([mockOrden]);
 
     await ordenesService.getAllOrdenes({ cliente_id: 5 });
@@ -244,7 +223,7 @@ describe('ordenesService.getAllOrdenes', () => {
     expect(query.mock.calls[0][1]).toContain(5);
   });
 
-  test('✅ aplica filtro por estado_id en el SQL', async () => {
+  test('filtra por estado_id', async () => {
     query.mockResolvedValueOnce([mockOrden]);
 
     await ordenesService.getAllOrdenes({ estado_id: 1 });
@@ -253,7 +232,7 @@ describe('ordenesService.getAllOrdenes', () => {
     expect(sqlCalled).toContain('estado_id');
   });
 
-  test('✅ retorna array vacío cuando no hay coincidencias', async () => {
+  test('retorna vacio si no hay resultados', async () => {
     query.mockResolvedValueOnce([]);
 
     const result = await ordenesService.getAllOrdenes({ cliente_id: 999 });
@@ -262,15 +241,10 @@ describe('ordenesService.getAllOrdenes', () => {
   });
 });
 
-// ============================================================================
-// TEST SUITE 5 — asignarMecanico
-// ============================================================================
+// tests de asignar mecanico
 describe('ordenesService.asignarMecanico', () => {
-  // asignarMecanico hace 2 queries:
-  //   1) UPDATE mecanico_asignado_id
-  //   2) getOrdenById → SELECT (necesita array)
-
-  test('✅ asigna mecánico y retorna la orden actualizada', async () => {
+  // hace 2 consultas
+  test('asigna mecanico y retorna la orden', async () => {
     const ordenConMecanico = {
       ...mockOrden,
       mecanico_asignado_id: 7,
@@ -278,8 +252,8 @@ describe('ordenesService.asignarMecanico', () => {
     };
 
     query
-      .mockResolvedValueOnce({ affectedRows: 1 })    // UPDATE
-      .mockResolvedValueOnce([ordenConMecanico]);     // getOrdenById
+      .mockResolvedValueOnce({ affectedRows: 1 })
+      .mockResolvedValueOnce([ordenConMecanico]);
 
     const result = await ordenesService.asignarMecanico(1, 7, 10);
 
