@@ -129,28 +129,29 @@ const getOrdenById = async (ordenId) => {
  * CORREGIDO: Ahora maneja creación de clientes y vehículos
  */
 const createOrden = async (ordenData, userId) => {
+  // Desestructurar con valores por defecto null en lugar de undefined
   const {
     tipo_orden_id,
-    cliente_id,
+    cliente_id = null,              // ← Default null
     cliente,
-    vehiculo_id,
+    vehiculo_id = null,             // ← Default null
     vehiculo,
-    tipo_pieza,
-    marca_pieza,
-    modelo_origen,
-    numero_parte,
+    tipo_pieza = null,              // ← Default null
+    marca_pieza = null,             // ← Default null
+    modelo_origen = null,           // ← Default null
+    numero_parte = null,            // ← Default null
     descripcion_problema,
-    observaciones,
+    observaciones = null,           // ← Default null
     fecha_recepcion,
     hora_recepcion,
-    fecha_diagnostico,
-    hora_diagnostico,
-    fecha_entrega_estimada,
-    hora_entrega_estimada,
-    estado_id,
-    mecanico_asignado_id,
-    prioridad_id,
-    costo_estimado
+    fecha_diagnostico = null,       // ← Default null
+    hora_diagnostico = null,        // ← Default null
+    fecha_entrega_estimada = null,  // ← Default null
+    hora_entrega_estimada = null,   // ← Default null
+    estado_id = 1,                  // ← Default 1
+    mecanico_asignado_id = null,    // ← Default null
+    prioridad_id = 2,               // ← Default 2
+    costo_estimado = 0              // ← Default 0
   } = ordenData;
 
   return await transaction(async (connection) => {
@@ -169,13 +170,24 @@ const createOrden = async (ordenData, userId) => {
         ['cliente']
       );
 
-      if (!roleResult) {
-        throw new Error('Error al obtener rol de cliente');
+      console.log('🔍 DEBUG roleResult:', roleResult);
+
+      if (!roleResult || roleResult.length === 0) {
+        throw new Error('No se encontró el rol de cliente en la base de datos');
       }
+
+      const rolClienteId = roleResult[0].id_rol;  // ← Acceder al primer elemento del array
+      console.log('✅ Rol cliente ID:', rolClienteId);
 
       // Generar contraseña temporal
       const tempPassword = Math.random().toString(36).slice(-8);
       const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+      console.log('🔍 DEBUG - Valores para INSERT:');
+      console.log('  email:', cliente.email || `temp_${Date.now()}@autosmart.com`);
+      console.log('  nombreCompleto:', cliente.nombreCompleto);
+      console.log('  telefono:', cliente.telefono);
+      console.log('  rolClienteId:', rolClienteId);
 
       // Crear usuario
       const [userResult] = await connection.execute(
@@ -186,7 +198,7 @@ const createOrden = async (ordenData, userId) => {
           passwordHash,
           cliente.nombreCompleto,
           cliente.telefono,
-          roleResult.id_rol
+          rolClienteId  // ← Usar la variable correcta
         ]
       );
 
@@ -282,23 +294,23 @@ const createOrden = async (ordenData, userId) => {
         numero_orden,
         tipo_orden_id,
         finalClienteId,
-        finalVehiculoId || null,
-        tipo_pieza || null,
-        marca_pieza || null,
-        modelo_origen || null,
-        numero_parte || null,
+        finalVehiculoId ?? null,
+        tipo_pieza ?? null,
+        marca_pieza ?? null,
+        modelo_origen ?? null,
+        numero_parte ?? null,
         descripcion_problema,
-        observaciones || null,
-        fecha_recepcion || new Date().toISOString().split('T')[0],
-        hora_recepcion || new Date().toTimeString().slice(0, 8),
-        fecha_diagnostico || null,
-        hora_diagnostico || null,
-        fecha_entrega_estimada || null,
-        hora_entrega_estimada || null,
-        estado_id || 1,
-        mecanico_asignado_id || null,
-        prioridad_id || 2,
-        costo_estimado || 0,
+        observaciones ?? null,
+        fecha_recepcion ?? new Date().toISOString().split('T')[0],
+        hora_recepcion ?? new Date().toTimeString().slice(0, 8),
+        fecha_diagnostico ?? null,
+        hora_diagnostico ?? null,
+        fecha_entrega_estimada ?? null,
+        hora_entrega_estimada ?? null,
+        estado_id ?? 1,
+        mecanico_asignado_id ?? null,
+        prioridad_id ?? 2,
+        costo_estimado ?? 0,
         userId
       ]
     );
