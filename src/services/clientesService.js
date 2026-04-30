@@ -160,7 +160,7 @@ const getVehiculosCliente = async (clienteId) => {
  */
 const getOrdenesCliente = async (clienteId) => {
   const ordenes = await query(
-    `SELECT ot.*, 
+    `SELECT ot.*,
             tor.tipo as tipo_orden_nombre,
             eo.estado as estado_nombre,
             p.prioridad as prioridad_nombre,
@@ -168,15 +168,47 @@ const getOrdenesCliente = async (clienteId) => {
             v.marca as marca_vehiculo,
             v.modelo as modelo_vehiculo,
             v.placa as placa_vehiculo,
-            v.anio as anio_vehiculo
+            v.anio as anio_vehiculo,
+            -- cotización más reciente visible (todo excepto borrador)
+            (SELECT cot2.id
+               FROM cotizaciones cot2
+              WHERE cot2.orden_trabajo_id = ot.id
+                AND cot2.estado_id IN (2, 3, 4, 5)
+              ORDER BY cot2.fecha_creacion DESC
+              LIMIT 1) as cotizacion_id,
+            (SELECT cot2.numero_cotizacion
+               FROM cotizaciones cot2
+              WHERE cot2.orden_trabajo_id = ot.id
+                AND cot2.estado_id IN (2, 3, 4, 5)
+              ORDER BY cot2.fecha_creacion DESC
+              LIMIT 1) as numero_cotizacion,
+            (SELECT cot2.total
+               FROM cotizaciones cot2
+              WHERE cot2.orden_trabajo_id = ot.id
+                AND cot2.estado_id IN (2, 3, 4, 5)
+              ORDER BY cot2.fecha_creacion DESC
+              LIMIT 1) as cotizacion_total,
+            (SELECT ec2.estado
+               FROM cotizaciones cot2
+               JOIN estados_cotizacion ec2 ON cot2.estado_id = ec2.id_estado
+              WHERE cot2.orden_trabajo_id = ot.id
+                AND cot2.estado_id IN (2, 3, 4, 5)
+              ORDER BY cot2.fecha_creacion DESC
+              LIMIT 1) as cotizacion_estado,
+            (SELECT cot2.valida_hasta
+               FROM cotizaciones cot2
+              WHERE cot2.orden_trabajo_id = ot.id
+                AND cot2.estado_id IN (2, 3, 4, 5)
+              ORDER BY cot2.fecha_creacion DESC
+              LIMIT 1) as cotizacion_valida_hasta
      FROM ordenes_trabajo ot
-     INNER JOIN tipos_orden tor ON ot.tipo_orden_id = tor.id_tipo
-     INNER JOIN estados_orden eo ON ot.estado_id = eo.id_estado
-     INNER JOIN prioridades p ON ot.prioridad_id = p.id_prioridad
-     LEFT JOIN usuarios u ON ot.mecanico_asignado_id = u.id
-     LEFT JOIN vehiculos v ON ot.vehiculo_id = v.id
+     INNER JOIN tipos_orden tor  ON ot.tipo_orden_id = tor.id_tipo
+     INNER JOIN estados_orden eo ON ot.estado_id    = eo.id_estado
+     INNER JOIN prioridades p    ON ot.prioridad_id = p.id_prioridad
+     LEFT  JOIN usuarios u       ON ot.mecanico_asignado_id = u.id
+     LEFT  JOIN vehiculos v      ON ot.vehiculo_id  = v.id
      WHERE ot.cliente_id = ?
-     ORDER BY ot.fecha_creacion DESC`,
+     ORDER BY ot.fecha_recepcion DESC`,
     [clienteId]
   );
  

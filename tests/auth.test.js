@@ -25,8 +25,7 @@ const mockTokens = {
   refreshToken: 'mock.refresh.token',
 };
 
-// devuelve un usuario nuevo cada vez
-// esto evita problemas porque el servicio elimina el password_hash
+// mocks de usuario nuevo
 const freshUser = () => ({
   id: 1,
   email: 'juan@example.com',
@@ -48,7 +47,7 @@ describe('authService.login', () => {
   test('login exitoso con credenciales válidas', async () => {
     query.mockResolvedValueOnce([freshUser()]);
     bcrypt.compare.mockResolvedValueOnce(true);
-    query.mockResolvedValueOnce({ affectedRows: 1 }); // actualiza refresh token
+    query.mockResolvedValueOnce({ affectedRows: 1 });
 
     const result = await authService.login('juan@example.com', 'password123');
 

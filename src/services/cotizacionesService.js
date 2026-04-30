@@ -1,5 +1,8 @@
 // ============================================================================
-// SERVICIO DE COTIZACIONES (CRÍTICO)
+// SERVICIO DE COTIZACIONES (BACKEND)
+// Fix aplicado: getCotizacionById y getAllCotizaciones incluyen tipo_pieza,
+// marca_pieza, modelo_origen, numero_parte.
+// createCotizacion usa transaction() + connection.execute() (patrón correcto).
 // ============================================================================
 
 const { query, transaction } = require('../config/database');
@@ -13,6 +16,10 @@ const getAllCotizaciones = async (filters = {}) => {
            ec.estado as estado_nombre,
            ot.numero_orden,
            ot.descripcion_problema,
+           ot.tipo_pieza,
+           ot.marca_pieza,
+           ot.modelo_origen,
+           ot.numero_parte,
            tor.tipo as tipo_orden_nombre,
            c.nombre_completo as nombre_cliente,
            c.telefono as telefono_cliente,
@@ -70,6 +77,10 @@ const getCotizacionById = async (cotizacionId) => {
             ot.numero_orden,
             ot.descripcion_problema,
             ot.diagnostico_tecnico,
+            ot.tipo_pieza,
+            ot.marca_pieza,
+            ot.modelo_origen,
+            ot.numero_parte,
             tor.tipo as tipo_orden_nombre,
             c.nombre_completo as nombre_cliente,
             c.telefono as telefono_cliente,
@@ -112,12 +123,12 @@ const getCotizacionByNumero = async (numeroCotizacion) => {
     'SELECT * FROM cotizaciones WHERE numero_cotizacion = ?',
     [numeroCotizacion]
   );
-
   return cotizacion;
 };
 
 /**
  * Crear cotización
+ * Usa transaction() + connection.execute() para que result.insertId funcione
  */
 const createCotizacion = async (cotizacionData, userId) => {
   const {
@@ -145,18 +156,17 @@ const createCotizacion = async (cotizacionData, userId) => {
     return sum + (parseFloat(item.cantidad) * parseFloat(item.precio_unitario));
   }, 0);
 
-  const manoObraValor = parseFloat(mano_obra) || 0;
-  const descuentoValor = parseFloat(descuento) || 0;
-  const impuestosValor = parseFloat(impuestos) || 0;
-
+  const manoObraValor  = parseFloat(mano_obra)  || 0;
+  const descuentoValor = parseFloat(descuento)  || 0;
+  const impuestosValor = parseFloat(impuestos)  || 0;
   const total = subtotal + manoObraValor - descuentoValor + impuestosValor;
 
   return await transaction(async (connection) => {
-    // Generar número de cotización
+    // Generar número de cotización COT-YYYY-NNNNNN
     const year = new Date().getFullYear();
 
     const [count] = await connection.execute(
-      `SELECT COUNT(*) as total FROM cotizaciones 
+      `SELECT COUNT(*) as total FROM cotizaciones
        WHERE numero_cotizacion LIKE ? AND YEAR(fecha_creacion) = ?`,
       [`COT-${year}-%`, year]
     );
@@ -186,6 +196,12 @@ const createCotizacion = async (cotizacionData, userId) => {
       ]
     );
 
+    // Actualizar costo estimado en la orden
+    await connection.execute(
+      'UPDATE ordenes_trabajo SET costo_estimado = ? WHERE id = ?',
+      [total, orden_trabajo_id]
+    );
+
     return result.insertId;
   });
 };
@@ -205,28 +221,18 @@ const updateCotizacion = async (cotizacionId, cotizacionData, userId) => {
   } = cotizacionData;
 
   const updates = [];
-  const params = [];
+  const params  = [];
 
   if (items_cotizacion !== undefined) {
-    // Recalcular totales
-    const subtotal = items_cotizacion.reduce((sum, item) => {
-      return sum + (parseFloat(item.cantidad) * parseFloat(item.precio_unitario));
-    }, 0);
-
-    const manoObraValor = parseFloat(mano_obra) || 0;
-    const descuentoValor = parseFloat(descuento) || 0;
-    const impuestosValor = parseFloat(impuestos) || 0;
-    const total = subtotal + manoObraValor - descuentoValor + impuestosValor;
+    const itemsArray     = Array.isArray(items_cotizacion) ? items_cotizacion : [];
+    const subtotal       = itemsArray.reduce((acc, it) => acc + (parseFloat(it.cantidad) * parseFloat(it.precio_unitario)), 0);
+    const manoObraValor  = parseFloat(mano_obra)  || 0;
+    const descuentoValor = parseFloat(descuento)  || 0;
+    const impuestosValor = parseFloat(impuestos)  || 0;
+    const total          = subtotal + manoObraValor - descuentoValor + impuestosValor;
 
     updates.push('items_cotizacion = ?', 'subtotal = ?', 'mano_obra = ?', 'descuento = ?', 'impuestos = ?', 'total = ?');
-    params.push(
-      JSON.stringify(items_cotizacion),
-      subtotal,
-      manoObraValor,
-      descuentoValor,
-      impuestosValor,
-      total
-    );
+    params.push(JSON.stringify(itemsArray), subtotal, manoObraValor, descuentoValor, impuestosValor, total);
   }
 
   if (valida_hasta !== undefined) {
@@ -242,36 +248,27 @@ const updateCotizacion = async (cotizacionId, cotizacionData, userId) => {
   if (estado_id !== undefined) {
     updates.push('estado_id = ?');
     params.push(estado_id);
-
-    // Si se aprueba o rechaza, registrar fecha
-    if (estado_id === 3 || estado_id === 4) { // aprobada o rechazada
+    if (estado_id === 3 || estado_id === 4) {
       updates.push('fecha_respuesta = NOW()');
     }
   }
 
-  if (updates.length === 0) {
-    throw new Error('No hay campos para actualizar');
-  }
+  if (updates.length === 0) throw new Error('No hay campos para actualizar');
 
   params.push(cotizacionId);
-
-  await query(
-    `UPDATE cotizaciones SET ${updates.join(', ')} WHERE id = ?`,
-    params
-  );
+  await query(`UPDATE cotizaciones SET ${updates.join(', ')} WHERE id = ?`, params);
 
   return await getCotizacionById(cotizacionId);
 };
 
 /**
- * Enviar cotización (cambiar estado a enviada)
+ * Enviar cotización (estado → enviada)
  */
 const enviarCotizacion = async (cotizacionId) => {
   await query(
     `UPDATE cotizaciones SET estado_id = 2, fecha_envio = NOW() WHERE id = ?`,
     [cotizacionId]
   );
-
   return await getCotizacionById(cotizacionId);
 };
 
@@ -283,14 +280,11 @@ const aprobarCotizacion = async (cotizacionId) => {
     `UPDATE cotizaciones SET estado_id = 3, fecha_respuesta = NOW() WHERE id = ?`,
     [cotizacionId]
   );
-
-  // Actualizar costo final en la orden
   const cotizacion = await getCotizacionById(cotizacionId);
   await query(
     'UPDATE ordenes_trabajo SET costo_final = ? WHERE id = ?',
     [cotizacion.total, cotizacion.orden_trabajo_id]
   );
-
   return cotizacion;
 };
 
@@ -302,7 +296,6 @@ const rechazarCotizacion = async (cotizacionId) => {
     `UPDATE cotizaciones SET estado_id = 4, fecha_respuesta = NOW() WHERE id = ?`,
     [cotizacionId]
   );
-
   return await getCotizacionById(cotizacionId);
 };
 
@@ -318,7 +311,6 @@ const getCotizacionesByOrden = async (ordenTrabajoId) => {
      ORDER BY cot.fecha_creacion DESC`,
     [ordenTrabajoId]
   );
-
   return cotizaciones;
 };
 
