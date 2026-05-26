@@ -217,8 +217,10 @@ const getOrdenesCliente = async (clienteId) => {
 
 /**
  * Obtener estadísticas de un cliente
+ * FIX: citas_pendientes se calcula en consulta separada para evitar error 500
  */
 const getEstadisticasCliente = async (clienteId) => {
+  // consulta 1: vehículos, órdenes y totales
   const [stats] = await query(
     `SELECT 
       COUNT(DISTINCT v.id) as total_vehiculos,
@@ -234,26 +236,42 @@ const getEstadisticasCliente = async (clienteId) => {
     [clienteId]
   );
 
-  return stats || {
-    total_vehiculos: 0,
-    total_ordenes: 0,
-    ordenes_completadas: 0,
-    ordenes_activas: 0,
-    total_gastado: 0
+  // consulta 2: citas pendientes o confirmadas con fecha futura
+  const [citasRow] = await query(
+    `SELECT COUNT(*) as citas_pendientes
+     FROM citas
+     WHERE cliente_id = ?
+       AND estado_id IN (1, 2)
+       AND fecha_cita >= CURDATE()`,
+    [clienteId]
+  );
+
+  return {
+    ...(stats || {
+      total_vehiculos: 0,
+      total_ordenes: 0,
+      ordenes_completadas: 0,
+      ordenes_activas: 0,
+      total_gastado: 0
+    }),
+    citas_pendientes: citasRow ? citasRow.citas_pendientes : 0
   };
 };
 
 /**
  * Buscar clientes por término
+ * FIX: solo muestra usuarios con rol cliente (rol_id = 1), excluye admins y mecánicos
  */
 const searchClientes = async (searchTerm) => {
   const clientes = await query(
     `SELECT c.id, c.nombre_completo, c.telefono, c.email, c.empresa
      FROM clientes c
-     WHERE c.nombre_completo LIKE ? 
+     INNER JOIN usuarios u ON c.usuario_id = u.id
+     WHERE u.rol_id = 1
+       AND (c.nombre_completo LIKE ? 
         OR c.telefono LIKE ? 
         OR c.email LIKE ?
-        OR c.empresa LIKE ?
+        OR c.empresa LIKE ?)
      LIMIT 20`,
     [`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`]
   );
