@@ -3,6 +3,7 @@
 // ============================================================================
 
 const authService = require('../services/authService');
+const usuariosService = require('../services/usuariosService');
 const { success, error } = require('../utils/responses');
 
 /**
@@ -104,10 +105,29 @@ const changePassword = async (req, res, next) => {
 
 /**
  * GET /api/auth/me
- * Obtener información del usuario autenticado
+ * Obtener información completa del usuario autenticado
  */
-const getMe = async (req, res) => {
-  return success(res, req.user, 'Información del usuario');
+const getMe = async (req, res, next) => {
+  try {
+    const user = await usuariosService.getUserById(req.user.id);
+    return success(res, user, 'Información del usuario');
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * PUT /api/auth/profile
+ * Actualizar perfil propio (cualquier usuario autenticado)
+ */
+const updateProfile = async (req, res, next) => {
+  try {
+    const { nombreCompleto, telefono } = req.body;
+    const user = await usuariosService.updateUser(req.user.id, { nombreCompleto, telefono });
+    return success(res, user, 'Perfil actualizado exitosamente');
+  } catch (err) {
+    next(err);
+  }
 };
 
 module.exports = {
@@ -116,5 +136,6 @@ module.exports = {
   refresh,
   logout,
   changePassword,
-  getMe
+  getMe,
+  updateProfile
 };

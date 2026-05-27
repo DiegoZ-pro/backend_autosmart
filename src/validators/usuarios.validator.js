@@ -57,6 +57,9 @@ const validateUpdateUser = (req, res, next) => {
       'string.min': 'El nombre debe tener al menos 3 caracteres',
       'string.max': 'El nombre no debe exceder 150 caracteres'
     }),
+    email: Joi.string().email().messages({
+      'string.email': 'El email debe ser válido'
+    }),
     telefono: Joi.string().min(7).max(20).allow(null, '').messages({
       'string.min': 'El teléfono debe tener al menos 7 caracteres',
       'string.max': 'El teléfono no debe exceder 20 caracteres'
@@ -73,6 +76,9 @@ const validateUpdateUser = (req, res, next) => {
     }),
     avatar_url: Joi.string().uri().allow(null, '').messages({
       'string.uri': 'La URL del avatar debe ser válida'
+    }),
+    nueva_password: Joi.string().min(6).messages({
+      'string.min': 'La contraseña debe tener al menos 6 caracteres'
     })
   });
 

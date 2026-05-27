@@ -10,7 +10,8 @@ const {
   validateRegister,
   validateLogin,
   validateRefreshToken,
-  validateChangePassword
+  validateChangePassword,
+  validateUpdateProfile
 } = require('../validators/auth.validator');
 
 /**
@@ -50,9 +51,16 @@ router.post('/change-password', authenticate, validateChangePassword, authContro
 
 /**
  * @route   GET /api/auth/me
- * @desc    Obtener información del usuario autenticado
+ * @desc    Obtener información completa del usuario autenticado
  * @access  Private
  */
 router.get('/me', authenticate, authController.getMe);
+
+/**
+ * @route   PUT /api/auth/profile
+ * @desc    Actualizar perfil propio (nombre y teléfono)
+ * @access  Private
+ */
+router.put('/profile', authenticate, validateUpdateProfile, authController.updateProfile);
 
 module.exports = router;

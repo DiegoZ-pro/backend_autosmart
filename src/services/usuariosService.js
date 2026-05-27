@@ -104,7 +104,7 @@ const createUser = async (userData, createdBy) => {
  * Actualizar usuario
  */
 const updateUser = async (userId, updateData) => {
-  const { nombreCompleto, telefono, rol_id, estado_id, avatar_url } = updateData;
+  const { nombreCompleto, email, telefono, rol_id, estado_id, avatar_url, nueva_password } = updateData;
 
   const updates = [];
   const params = [];
@@ -112,6 +112,18 @@ const updateUser = async (userId, updateData) => {
   if (nombreCompleto !== undefined) {
     updates.push('nombre_completo = ?');
     params.push(nombreCompleto);
+  }
+
+  if (email !== undefined) {
+    const [existingUser] = await query(
+      'SELECT id FROM usuarios WHERE email = ? AND id != ?',
+      [email, userId]
+    );
+    if (existingUser) {
+      throw new Error('El email ya está registrado');
+    }
+    updates.push('email = ?');
+    params.push(email);
   }
 
   if (telefono !== undefined) {
@@ -132,6 +144,12 @@ const updateUser = async (userId, updateData) => {
   if (avatar_url !== undefined) {
     updates.push('avatar_url = ?');
     params.push(avatar_url);
+  }
+
+  if (nueva_password) {
+    const passwordHash = await bcrypt.hash(nueva_password, 10);
+    updates.push('password_hash = ?');
+    params.push(passwordHash);
   }
 
   if (updates.length === 0) {

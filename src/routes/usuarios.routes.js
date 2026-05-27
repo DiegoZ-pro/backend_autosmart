@@ -5,7 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const usuariosController = require('../controllers/usuariosController');
-const { authenticate, isAdmin } = require('../middlewares/auth');
+const { authenticate, isAdmin, isAdminOrMechanic } = require('../middlewares/auth');
 const {
   validateCreateUser,
   validateUpdateUser,
@@ -23,6 +23,13 @@ router.use(authenticate);
  * @access  Private (Admin)
  */
 router.get('/stats', isAdmin, usuariosController.getUserStats);
+
+/**
+ * @route   GET /api/usuarios/mecanicos
+ * @desc    Obtener lista de mecánicos (para asignación en diagnóstico)
+ * @access  Private (Admin y Mecánico)
+ */
+router.get('/mecanicos', isAdminOrMechanic, usuariosController.getMecanicos);
 
 /**
  * @route   GET /api/usuarios

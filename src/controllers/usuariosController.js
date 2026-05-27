@@ -80,6 +80,9 @@ const updateUser = async (req, res, next) => {
     if (err.message === 'Usuario no encontrado') {
       return notFound(res, err.message);
     }
+    if (err.message === 'El email ya está registrado') {
+      return error(res, err.message, 409);
+    }
     next(err);
   }
 };
@@ -118,6 +121,19 @@ const changeUserStatus = async (req, res, next) => {
 };
 
 /**
+ * GET /api/usuarios/mecanicos
+ * Obtener lista de mecánicos (accesible a admin y mecánico)
+ */
+const getMecanicos = async (req, res, next) => {
+  try {
+    const users = await usuariosService.getAllUsers({ rol_id: 2 });
+    return success(res, users, 'Mecánicos obtenidos exitosamente');
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
  * GET /api/usuarios/stats
  * Obtener estadísticas de usuarios
  */
@@ -138,5 +154,6 @@ module.exports = {
   updateUser,
   deleteUser,
   changeUserStatus,
+  getMecanicos,
   getUserStats
 };

@@ -120,9 +120,39 @@ const validateChangePassword = (req, res, next) => {
   next();
 };
 
+/**
+ * Validar actualización de perfil propio
+ */
+const validateUpdateProfile = (req, res, next) => {
+  const schema = Joi.object({
+    nombreCompleto: Joi.string().min(3).max(150).required().messages({
+      'string.min': 'El nombre debe tener al menos 3 caracteres',
+      'string.max': 'El nombre no debe exceder 150 caracteres',
+      'any.required': 'El nombre completo es requerido'
+    }),
+    telefono: Joi.string().min(7).max(20).allow(null, '').messages({
+      'string.min': 'El teléfono debe tener al menos 7 caracteres',
+      'string.max': 'El teléfono no debe exceder 20 caracteres'
+    })
+  });
+
+  const { error } = schema.validate(req.body, { abortEarly: false });
+
+  if (error) {
+    const errors = error.details.map(err => ({
+      field: err.path[0],
+      message: err.message
+    }));
+    return validationError(res, errors);
+  }
+
+  next();
+};
+
 module.exports = {
   validateRegister,
   validateLogin,
   validateRefreshToken,
-  validateChangePassword
+  validateChangePassword,
+  validateUpdateProfile
 };
